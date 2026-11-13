@@ -1,0 +1,418 @@
+---
+title: "Gasto global em saúde, 2000 a 2023: quem paga a conta e onde o Brasil se situa"
+author:
+  - Ana Gabriella Prestes da Silva
+  - Ana Teresa Throniecke Alves
+  - Maria Eduarda Neves Galvão
+date: "`r format(Sys.Date(), '%d/%m/%Y')`"
+output:
+  bookdown::html_document2:
+    toc: true
+    toc_float: true
+    number_sections: true
+    global_numbering: true
+    df_print: paged
+lang: pt-BR
+bibliography: referencias.bib
+csl: abnt.csl
+link-citations: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,
+                      fig.width = 8, fig.height = 4.5, out.width = "100%",
+                      fig.align = "center")
+
+library(tidyverse)
+library(scales)
+library(knitr)
+
+source("app/config_visual.R")            # mesmas cores e tema do app
+painel <- readRDS("app/dados/painel.rds") # mesmo painel do app
+
+# Formata números no padrão brasileiro (1.234,5)
+num <- function(x, d = 1) format(round(x, d), big.mark = ".",
+                                 decimal.mark = ",", nsmall = d)
+pval <- function(p) {
+  if (p < 0.001) "< 0,001" else paste("=", format(round(p, 3), decimal.mark = ","))
+}
+```
+
+```{css, echo=FALSE}
+/* Aparência de artigo (A4, texto justificado, recuo de 1,25 cm) */
+body { font-family: Arial, Helvetica, sans-serif; font-size: 12pt;
+       line-height: 1.5; text-align: justify; }
+.main-container { max-width: 960px; }
+p { text-indent: 1.25cm; margin: 0 0 0.7em 0; }
+li p, .caption, .author, .date, h1.title, #refs p, .figure p, td p, th p
+  { text-indent: 0; }
+h1 { text-transform: uppercase; font-size: 14pt; font-weight: bold; }
+h2 { font-size: 13pt; font-weight: bold; }
+h1.title { text-transform: none; font-size: 20pt; text-align: center; }
+.author, .date { text-align: center; }
+p.caption, caption { text-align: left; font-size: 10pt; text-indent: 0; }
+#refs p { text-align: left; line-height: 1.15; }
+@page { size: A4; margin: 3cm 2cm 2cm 3cm; }
+@media print { #TOC { display: none; } .main-container { max-width: 100%; } }
+```
+
+```{r valores, include=FALSE}
+# ---- Números usados no texto (inline) --------------------------------
+n_paises  <- n_distinct(painel$country_name)
+ano_min   <- min(painel$year)
+ano_max   <- max(painel$year)
+
+mundo <- painel |>
+  filter(!is.na(che_usd2023)) |>
+  group_by(year) |>
+  summarise(total_tri = sum(che_usd2023) / 1e12, .groups = "drop")
+mundo_2000 <- mundo$total_tri[mundo$year == 2000]
+mundo_2023 <- mundo$total_tri[mundo$year == 2023]
+
+rank_ano <- painel |>
+  filter(!is.na(che_usd2023)) |>
+  group_by(year) |>
+  mutate(posicao = min_rank(desc(che_usd2023)),
+         parte = che_usd2023 / sum(che_usd2023) * 100) |>
+  ungroup()
+pos_br_2000 <- rank_ano$posicao[rank_ano$iso3_code == "BRA" & rank_ano$year == 2000]
+pos_br_2023 <- rank_ano$posicao[rank_ano$iso3_code == "BRA" & rank_ano$year == 2023]
+parte_eua   <- rank_ano$parte[rank_ano$iso3_code == "USA" & rank_ano$year == 2023]
+
+d23 <- painel |> filter(year == 2023)
+br23 <- d23 |> filter(iso3_code == "BRA")
+med_gov23  <- median(d23$gghed_che, na.rm = TRUE)
+med_pvt23  <- median(d23$pvtd_che,  na.rm = TRUE)
+med_oop23  <- median(d23$hf3_che,   na.rm = TRUE)
+
+topo_oop <- d23 |> slice_max(hf3_che, n = 3, with_ties = FALSE)
+
+cor_oop <- suppressWarnings(
+  cor.test(d23$che_usd2023, d23$hf3_che, method = "spearman", exact = FALSE))
+
+covid <- painel |>
+  filter(year %in% c(2019, 2020), !is.na(che_usd2023)) |>
+  select(country_name, iso3_code, year, che_usd2023) |>
+  pivot_wider(names_from = year, values_from = che_usd2023, names_prefix = "ano_") |>
+  mutate(variacao = (ano_2020 / ano_2019 - 1) * 100) |>
+  filter(!is.na(variacao))
+wil <- suppressWarnings(
+  wilcox.test(covid$ano_2020, covid$ano_2019, paired = TRUE, exact = FALSE))
+med_covid <- median(covid$variacao)
+br_covid  <- covid$variacao[covid$iso3_code == "BRA"]
+prop_alta <- mean(covid$variacao > 0) * 100
+
+covid21 <- painel |>
+  filter(year %in% c(2019, 2021), !is.na(che_usd2023)) |>
+  select(iso3_code, year, che_usd2023) |>
+  pivot_wider(names_from = year, values_from = che_usd2023, names_prefix = "ano_") |>
+  mutate(variacao = (ano_2021 / ano_2019 - 1) * 100) |>
+  filter(!is.na(variacao))
+med_covid21 <- median(covid21$variacao)
+br_covid21  <- covid21$variacao[covid21$iso3_code == "BRA"]
+
+mundo_2019 <- mundo$total_tri[mundo$year == 2019]
+mundo_2020 <- mundo$total_tri[mundo$year == 2020]
+
+top5_2023 <- rank_ano |> filter(year == 2023, posicao <= 5) |>
+  summarise(s = sum(parte)) |> pull(s)
+
+d00  <- painel |> filter(year == 2000)
+br00 <- d00 |> filter(iso3_code == "BRA")
+br19 <- painel |> filter(year == 2019, iso3_code == "BRA")
+med_gov00 <- median(d00$gghed_che, na.rm = TRUE)
+med_oop00 <- median(d00$hf3_che,   na.rm = TRUE)
+med_seg23 <- median(d23$hf2_che,   na.rm = TRUE)
+soma_fonte <- range(painel$gghed_che + painel$pvtd_che + painel$ext_che, na.rm = TRUE)
+soma_esq   <- range(painel$hf1_che + painel$hf2_che + painel$hf3_che +
+                      painel$hf4_che + painel$hfnec_che, na.rm = TRUE)
+eua23 <- d23 |> filter(iso3_code == "USA")
+deu23 <- d23 |> filter(iso3_code == "DEU")
+chn23 <- d23 |> filter(iso3_code == "CHN")
+
+n_oop50 <- sum(d23$hf3_che > 50, na.rm = TRUE)
+n_oop   <- sum(!is.na(d23$hf3_che))
+
+d23c <- d23 |> filter(!is.na(che_usd2023), !is.na(gghed_che))
+cor_gov <- suppressWarnings(
+  cor.test(d23c$che_usd2023, d23c$gghed_che, method = "spearman", exact = FALSE))
+
+fin19 <- painel |> filter(year == 2019, !is.na(hc1_che))
+n_fin19  <- nrow(fin19)
+med_cur  <- median(fin19$hc1_che)
+med_prev <- median(fin19$hc6_che)
+br_fin19 <- fin19 |> filter(iso3_code == "BRA")
+```
+
+# Introdução {#sec-intro}
+
+A saúde é, ao mesmo tempo, um direito e um dos setores que mais consomem recursos nas economias modernas. A forma como os países financiam seus sistemas de saúde, isto é, quanto vem do orçamento público, quanto é pago pelas famílias e quanto chega de fontes externas, influencia diretamente o acesso aos serviços e a proteção financeira da população. Quando uma parcela grande do gasto recai sobre o bolso das famílias no momento do uso do serviço, aumenta o risco de que uma doença se transforme em empobrecimento [@xu2003]. Por isso, a Organização Mundial da Saúde defende que os sistemas dependam de mecanismos de pré-pagamento, como impostos e seguros, e não de pagamentos diretos [@oms2010].
+
+O caso brasileiro é particularmente interessante. A Constituição de 1988 estabeleceu a saúde como direito de todos e dever do Estado [@brasil1988], o que deu origem ao Sistema Único de Saúde (SUS), um sistema público e universal [@paim2011]. Ao mesmo tempo, o país mantém um grande setor privado, de modo que o financiamento da saúde no Brasil é misto. Isso levanta uma pergunta natural: como esse arranjo se compara ao de outros países?
+
+Este trabalho analisa o *Global Health Expenditure Database* (GHED), da Organização Mundial da Saúde [@who_ghed], que reúne o gasto em saúde de `r n_paises` países entre `r ano_min` e `r ano_max`. O problema central é descrever como o gasto em saúde está distribuído e como ele evoluiu, com atenção à origem dos recursos e à posição do Brasil. Os objetivos específicos são: (a) descrever a evolução do gasto mundial em saúde e a concentração desse gasto entre os países; (b) caracterizar quem financia a saúde (governo, setor privado e exterior) e qual o peso do gasto direto das famílias; (c) examinar a relação entre o tamanho do gasto total e a forma de financiamento; (d) avaliar o efeito da pandemia de COVID-19 sobre o gasto entre 2019 e 2020; e (e) situar o Brasil em relação ao conjunto dos países.
+
+O texto está organizado em quatro partes. A Seção \@ref(sec-metodos) descreve os dados e os métodos, a Seção \@ref(sec-resultados) apresenta e discute os resultados, a Seção \@ref(sec-limites) discute as limitações e a Seção \@ref(sec-conclusao) reúne as conclusões.
+
+# Materiais e métodos {#sec-metodos}
+
+## Dados {#sec-dados}
+
+Os dados foram obtidos pelo projeto TidyTuesday (semana 16 de 2026) [@tidytuesday], que disponibiliza em formato aberto informações da base GHED [@who_ghed]. O conjunto é formado por três tabelas em formato longo, nas quais cada linha traz um país, um ano, um indicador e um valor:
+
+- **fonte do gasto** (`health_spending`): gasto corrente em saúde e sua divisão entre governo, setor privado e fontes externas;
+- **esquema de financiamento** (`financing_schemes`): divisão do gasto entre governo, seguros voluntários, gasto direto das famílias, exterior e não especificado;
+- **finalidade do gasto** (`spending_purpose`): divisão do gasto entre tipos de serviço, como atenção curativa, reabilitação, serviços preventivos e bens médicos.
+
+Cada indicador aparece em duas versões: como porcentagem do gasto corrente em saúde e em dólares americanos constantes de 2023, o que permite comparar valores entre anos sem o efeito da inflação. As duas primeiras tabelas cobrem `r n_paises` países entre `r ano_min` e `r ano_max`. A tabela de finalidade é mais restrita: cobre os anos de 2016 a 2023 e um número menor de países, que diminui ao longo do período (123 países em 2018 e 65 em 2023).
+
+## Pré-processamento {#sec-prep}
+
+As três tabelas foram convertidas para o formato largo, com uma linha por país e ano, e reunidas em um único painel de `r nrow(painel)` linhas. As decisões de tratamento foram as seguintes:
+
+- percentuais ausentes foram tratados como 0%, pois, em cada tabela, as partes somam aproximadamente 100% e a ausência indica que a categoria não se aplica ao país naquele ano;
+- os valores em dólares ausentes foram mantidos como dados faltantes. É o caso de Cuba, que não tem valores em dólares e, por isso, não aparece nas análises que usam valores monetários;
+- os nomes dos países foram traduzidos para o português a partir do código ISO de três letras, usando o pacote `countrycode`, que serviu apenas para essa tradução;
+- as comparações entre anos usam sempre dólares constantes de 2023;
+- as três tabelas foram unidas pela tabela de fonte, por junção à esquerda, usando como chaves o país, o código ISO e o ano. Assim, a finalidade do gasto fica como dado faltante nos anos e países em que essa tabela não tem informação;
+- a categoria "governo" tem dois sentidos na base. Na origem do gasto, ela é o gasto do governo geral (GGHED). Nos esquemas de financiamento, ela inclui também os esquemas de contribuição obrigatória, e por isso pode ser maior;
+- como verificação, conferiu-se que as partes de cada tabela somam cerca de 100%: entre `r num(soma_fonte[1], 1)`% e `r num(soma_fonte[2], 1)`% na origem do gasto e entre `r num(soma_esq[1], 1)`% e `r num(soma_esq[2], 1)`% nos esquemas, diferenças atribuídas a arredondamento.
+
+## Métodos estatísticos {#sec-estat}
+
+A análise combina estatística descritiva, gráficos e dois testes não paramétricos. Como o gasto total em saúde é fortemente assimétrico, com poucos países concentrando a maior parte do valor, as comparações usam a mediana em vez da média, e os gráficos de gasto total usam escala logarítmica quando os valores variam em várias ordens de grandeza.
+
+Para medir a associação entre duas variáveis foi usada a **correlação de Spearman** [@spearman1904], que equivale à correlação de Pearson aplicada aos postos das observações. Ela não exige normalidade nem relação linear, apenas monotonicidade, o que a torna adequada a dados assimétricos. Também foi ajustada uma reta de regressão linear, usada apenas como resumo visual da tendência nos gráficos de dispersão.
+
+Para avaliar o efeito da pandemia, calculou-se a variação percentual do gasto de cada país entre 2019 e 2020:
+
+$$\Delta_i = \left(\frac{G_{i,2020}}{G_{i,2019}} - 1\right) \times 100,$$
+
+em que $G_{i,t}$ é o gasto total do país $i$ no ano $t$. Para testar se o gasto mudou de forma sistemática, foi usado o **teste de Wilcoxon pareado** [@wilcoxon1945], que compara as duas medidas de cada país e não exige normalidade das diferenças. O pareamento é necessário porque os dois valores se referem ao mesmo país. Adotou-se nível de significância de 5%.
+
+## Ferramentas computacionais e reprodutibilidade {#sec-comp}
+
+Toda a análise foi feita na linguagem R [@rcore], versão `r paste(R.version$major, R.version$minor, sep = ".")`. Os dados foram obtidos diretamente da internet com o pacote `tidytuesdayR`. A manipulação dos dados (seleção, filtros, criação de variáveis, junções e mudança de formato) usou `dplyr` (versão `r as.character(packageVersion("dplyr"))`) e `tidyr` (versão `r as.character(packageVersion("tidyr"))`), do conjunto `tidyverse` [@tidyverse]. Os gráficos foram feitos com `ggplot2` (versão `r as.character(packageVersion("ggplot2"))`), com o pacote `scales` para os formatos de número, e as tabelas com `knitr`. O pacote `countrycode` foi usado apenas para traduzir os nomes dos países.
+
+O fluxo de trabalho foi organizado para ser reproduzível. Um único roteiro de preparação baixa os dados, faz o tratamento descrito na Seção \@ref(sec-prep) e grava o painel final em um arquivo. As cores e o tema dos gráficos ficam em um arquivo de configuração comum, e o código está versionado em um repositório no GitHub. O relatório foi escrito em R Markdown [@xie_rmarkdown], com os pacotes `rmarkdown` e `bookdown` para as referências cruzadas, e todos os números do texto são calculados pelo código no momento da geração do documento.
+
+# Resultados e discussão {#sec-resultados}
+
+## Evolução e concentração do gasto mundial
+
+O gasto mundial em saúde passou de US$ `r num(mundo_2000, 1)` trilhões em 2000 para US$ `r num(mundo_2023, 1)` trilhões em 2023, em valores constantes de 2023, um aumento de `r num((mundo_2023 / mundo_2000 - 1) * 100, 0)`% (Figura \@ref(fig:fig-mundo)). A trajetória é de crescimento contínuo, com um salto visível em 2020, quando o total passou de US$ `r num(mundo_2019, 1)` trilhões para US$ `r num(mundo_2020, 1)` trilhões, no primeiro ano da pandemia.
+
+```{r fig-mundo, fig.cap="Gasto mundial em saúde, 2000 a 2023 (bilhões de US$ de 2023). Fonte: elaboração própria, com dados da OMS (GHED)."}
+mundo |>
+  ggplot(aes(year, total_tri * 1000)) +
+  geom_line(linewidth = 1.1, colour = azul) +
+  geom_point(colour = azul, size = 2) +
+  scale_y_continuous(labels = fmt_num) +
+  labs(x = "Ano", y = "Bilhões de US$ (valores de 2023)")
+```
+
+Esse gasto é muito concentrado. Em 2023, os Estados Unidos responderam sozinhos por `r num(parte_eua, 0)`% do total mundial, e os cinco maiores gastadores juntos por `r num(top5_2023, 0)`%, ou seja, cerca de dois terços de tudo o que o mundo gasta em saúde (Figura \@ref(fig:fig-ranking)). O Brasil ocupava a `r pos_br_2023`ª posição em 2023, contra a `r pos_br_2000`ª em 2000. Seu gasto, no entanto, é pequeno diante do líder: o Brasil aparece na lista, mas com uma fração do valor dos Estados Unidos.
+
+```{r fig-ranking, fig.cap="Os 15 países que mais gastam em saúde, 2023. O Brasil aparece em verde. Fonte: elaboração própria, com dados da OMS (GHED)."}
+ranking <- d23 |>
+  filter(!is.na(che_usd2023)) |>
+  slice_max(che_usd2023, n = 15) |>
+  mutate(gasto_bi = che_usd2023 / 1e9,
+         destaque = if_else(iso3_code == "BRA", "Brasil", "Outros"))
+
+ggplot(ranking, aes(reorder(country_name, gasto_bi), gasto_bi, fill = destaque)) +
+  geom_col(width = 0.75) + coord_flip() +
+  scale_fill_manual(values = c(Brasil = verde, Outros = azul), guide = "none") +
+  scale_y_continuous(labels = fmt_num, expand = expansion(mult = c(0, 0.05))) +
+  labs(x = NULL, y = "Bilhões de US$ (valores de 2023)")
+```
+
+A participação do governo varia bastante mesmo entre os maiores gastadores: `r num(eua23$gghed_che, 1)`% nos Estados Unidos, `r num(deu23$gghed_che, 1)`% na Alemanha, `r num(chn23$gghed_che, 1)`% na China e `r num(br23$gghed_che, 1)`% no Brasil. Gastar muito, portanto, não significa financiar a saúde da mesma forma, o que é discutido a seguir.
+
+## Quem paga a conta
+
+Em 2023, a mediana mundial era de `r num(med_gov23, 1)`% do gasto financiado pelo governo e `r num(med_pvt23, 1)`% pelo setor privado. Em 2000, a mediana do governo era de `r num(med_gov00, 1)`%. Houve, portanto, um aumento da participação pública ao longo do período, ainda que moderado.
+
+A Tabela \@ref(tab:tab-resumo) resume a distribuição mundial desses indicadores e traz o valor do Brasil. O Brasil destoa dessa mediana. Em 2023, o governo financiou `r num(br23$gghed_che, 1)`% do gasto em saúde no país e o setor privado `r num(br23$pvtd_che, 1)`%, uma inversão em relação à mediana mundial (Figura \@ref(fig:fig-origem)). A participação pública brasileira era de `r num(br00$gghed_che, 1)`% em 2000 e variou pouco desde então: `r num(br19$gghed_che, 1)`% em 2019 e `r num(br23$gghed_che, 1)`% em 2023. Esse resultado chama atenção porque o Brasil tem um sistema público universal. O que os dados mostram é que o sistema público convive com um gasto privado de grande peso.
+
+```{r tab-resumo}
+vars_resumo <- c("Governo (% do gasto)" = "gghed_che",
+                 "Privado (% do gasto)" = "pvtd_che",
+                 "Seguro voluntário (%)" = "hf2_che",
+                 "Bolso das famílias (%)" = "hf3_che")
+
+lapply(names(vars_resumo), function(nome) {
+  v <- d23[[vars_resumo[[nome]]]]
+  q <- as.numeric(quantile(v, c(0, .25, .5, .75, 1), na.rm = TRUE))
+  tibble(Indicador = nome, `Mínimo` = q[1], `1º quartil` = q[2],
+         Mediana = q[3], `3º quartil` = q[4], `Máximo` = q[5],
+         Brasil = v[d23$iso3_code == "BRA"])
+}) |>
+  bind_rows() |>
+  mutate(across(where(is.numeric), \(x) num(x, 1))) |>
+  kable(caption = "Distribuição mundial dos indicadores de financiamento e valor do Brasil, 2023. Fonte: elaboração própria, com dados da OMS (GHED).",
+        align = "lrrrrrr")
+```
+
+
+```{r fig-origem, fig.cap="Origem do gasto em saúde no Brasil, 2000 a 2023 (% do gasto total). Fonte: elaboração própria, com dados da OMS (GHED)."}
+painel |>
+  filter(iso3_code == "BRA") |>
+  select(year, Governo = gghed_che, Privado = pvtd_che, Externo = ext_che) |>
+  pivot_longer(-year, names_to = "fonte", values_to = "percentual") |>
+  mutate(fonte = factor(fonte, levels = c("Externo", "Governo", "Privado"))) |>
+  ggplot(aes(year, percentual, fill = fonte)) +
+  geom_area(alpha = 0.95) +
+  scale_fill_manual(values = cores_fonte, breaks = c("Governo", "Privado", "Externo")) +
+  scale_y_continuous(labels = fmt_pct, expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0)) +
+  labs(x = "Ano", y = "% do gasto total", fill = NULL)
+```
+
+Para entender o que compõe esse gasto privado, é preciso olhar os esquemas de financiamento (Figura \@ref(fig:fig-esquemas)). No Brasil, o gasto privado se divide entre o seguro voluntário, que respondeu por `r num(br23$hf2_che, 1)`% do total em 2023 (a mediana mundial é de `r num(med_seg23, 1)`%), e o pagamento direto das famílias, de `r num(br23$hf3_che, 1)`%. Em outras palavras, o setor privado brasileiro depende bastante dos planos de saúde, algo menos comum no mundo. Já Estados Unidos e Alemanha financiam mais de 80% do gasto por esquemas governamentais e de contribuição obrigatória (`r num(eua23$hf1_che, 1)`% e `r num(deu23$hf1_che, 1)`%), com seguro voluntário abaixo de 6%; a China tem um perfil intermediário, com `r num(chn23$hf1_che, 1)`% de financiamento governamental e `r num(chn23$hf3_che, 1)`% de gasto direto.
+
+```{r fig-esquemas, fig.cap="Esquemas de financiamento em países selecionados, 2023 (% do gasto total). Fonte: elaboração própria, com dados da OMS (GHED)."}
+niveis_esq <- c("Governo", "Seguro voluntário", "Bolso das famílias",
+                "Exterior", "Não especificado")
+
+d23 |>
+  filter(iso3_code %in% c("BRA", "USA", "DEU", "CHN")) |>
+  select(country_name,
+         "Governo" = hf1_che, "Seguro voluntário" = hf2_che,
+         "Bolso das famílias" = hf3_che, "Exterior" = hf4_che,
+         "Não especificado" = hfnec_che) |>
+  pivot_longer(-country_name, names_to = "esquema", values_to = "percentual") |>
+  mutate(esquema = factor(esquema, levels = rev(niveis_esq))) |>
+  ggplot(aes(country_name, percentual, fill = esquema)) +
+  geom_col(width = 0.7) +
+  scale_fill_manual(values = cores_esquema, breaks = niveis_esq) +
+  scale_y_continuous(labels = fmt_pct, expand = c(0, 0)) +
+  guides(fill = guide_legend(nrow = 2)) +
+  labs(x = NULL, y = "% do gasto total", fill = NULL)
+```
+
+## O gasto direto das famílias
+
+O pagamento direto das famílias é o indicador mais associado ao risco financeiro da doença [@xu2003]. Em 2023, os países onde ele mais pesa são `r topo_oop$country_name[1]` (`r num(topo_oop$hf3_che[1], 1)`%), `r topo_oop$country_name[2]` (`r num(topo_oop$hf3_che[2], 1)`%) e `r topo_oop$country_name[3]` (`r num(topo_oop$hf3_che[3], 1)`%). Em `r n_oop50` dos `r n_oop` países com dados, mais da metade do gasto em saúde saiu diretamente do bolso das famílias. A mediana mundial caiu de `r num(med_oop00, 1)`% em 2000 para `r num(med_oop23, 1)`% em 2023, uma melhora geral na proteção financeira.
+
+O Brasil seguiu o mesmo movimento, com queda de intensidade semelhante à da mediana: o gasto direto das famílias caiu de `r num(br00$hf3_che, 1)`% em 2000 para `r num(br23$hf3_che, 1)`% em 2023, valor ligeiramente inferior à mediana mundial de `r num(med_oop23, 1)`% (Figura \@ref(fig:fig-oop)). A distribuição é bastante dispersa, e o Brasil fica em posição intermediária.
+
+```{r fig-oop, fig.cap="Distribuição da participação do gasto direto das famílias, 2023. A linha verde marca o Brasil e a tracejada, a mediana mundial. Fonte: elaboração própria, com dados da OMS (GHED)."}
+mediana_oop <- med_oop23
+brasil_oop  <- br23$hf3_che
+
+d23 |>
+  filter(!is.na(hf3_che)) |>
+  ggplot(aes(hf3_che)) +
+  geom_histogram(bins = 20, fill = laranja, colour = "white") +
+  geom_vline(xintercept = mediana_oop, linetype = "dashed", colour = "#6B7785") +
+  geom_vline(xintercept = brasil_oop, colour = verde, linewidth = 1) +
+  annotate("text", x = brasil_oop, y = Inf, label = " Brasil",
+           colour = verde, hjust = 0, vjust = 1.5, fontface = "bold") +
+  annotate("text", x = mediana_oop, y = Inf, label = "Mediana ",
+           colour = "#6B7785", hjust = 1, vjust = 3) +
+  scale_x_continuous(labels = fmt_pct) +
+  labs(x = "% do gasto total em saúde", y = "Número de países")
+```
+
+## Gasto total e forma de financiamento
+
+Uma hipótese comum é que países que gastam mais em saúde dependem menos do pagamento direto das famílias. Para testá-la, calculou-se a correlação de Spearman entre o gasto total e a participação do gasto direto em 2023. O resultado foi de rho = `r num(unname(cor_oop$estimate), 2)` (p `r pval(cor_oop$p.value)`), ou seja, **não há evidência de associação** (Figura \@ref(fig:fig-cor)). A nuvem de pontos não mostra tendência: países pequenos e grandes aparecem em todos os níveis de gasto direto.
+
+A razão provável é que o gasto total depende muito do tamanho da população. Um país populoso gasta muito em valor absoluto mesmo com gasto per capita baixo, e isso mistura países de realidades distintas. Já a associação com a participação do governo é positiva, ainda que fraca: rho = `r num(unname(cor_gov$estimate), 2)` (p `r pval(cor_gov$p.value)`). Países que gastam mais, em valor total, tendem a ter uma fatia pública um pouco maior. Uma análise per capita, que exigiria dados de população externos à base, seria o caminho natural para investigar melhor essa relação.
+
+```{r fig-cor, fig.cap="Gasto total e participação do gasto direto das famílias, 2023 (escala logarítmica no eixo horizontal). Fonte: elaboração própria, com dados da OMS (GHED)."}
+d23g <- d23 |> filter(!is.na(che_usd2023))
+ggplot(d23g, aes(che_usd2023, hf3_che)) +
+  geom_point(colour = azul, alpha = 0.5, size = 2) +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE,
+              colour = laranja, linewidth = 1) +
+  geom_point(data = filter(d23g, iso3_code == "BRA"), colour = verde, size = 3.5) +
+  geom_text(data = filter(d23g, iso3_code == "BRA"), label = "Brasil",
+            colour = verde, vjust = -1, fontface = "bold") +
+  scale_x_log10(labels = fmt_num) +
+  scale_y_continuous(labels = fmt_pct) +
+  labs(x = "Gasto total em saúde (US$, escala logarítmica)",
+       y = "% do gasto pago pelas famílias")
+```
+
+## Em que o dinheiro é gasto
+
+A tabela de finalidade permite ver o tipo de serviço financiado. Em 2019, ano com `r n_fin19` países com dados, a atenção curativa foi a maior categoria, com mediana de `r num(med_cur, 1)`% do gasto, enquanto os serviços preventivos ficaram em `r num(med_prev, 1)`% (Figura \@ref(fig:fig-finalidade)). No Brasil, a atenção curativa respondeu por `r num(br_fin19$hc1_che, 1)`% e a prevenção por `r num(br_fin19$hc6_che, 1)`%, valores próximos aos da mediana mundial. Chama atenção o peso dos bens médicos, de `r num(br_fin19$hc5_che, 1)`% do gasto no Brasil em 2019, o mais alto entre os quatro países da figura. Como esta tabela cobre poucos países e anos, a comparação deve ser lida com cautela.
+
+```{r fig-finalidade, fig.cap="Finalidade do gasto em saúde em países selecionados, 2019 (% do gasto total). Fonte: elaboração própria, com dados da OMS (GHED)."}
+rotulos_fin <- c(hc1_che = "Curativo", hc2_che = "Reabilitação",
+                 hc3_che = "Longa duração", hc4_che = "Serviços auxiliares",
+                 hc5_che = "Bens médicos", hc6_che = "Preventivo",
+                 hc7_che = "Governança", hc9_che = "Outros")
+
+painel |>
+  filter(year == 2019, iso3_code %in% c("BRA", "USA", "DEU", "CHL"),
+         !is.na(hc1_che)) |>
+  select(country_name, all_of(names(rotulos_fin))) |>
+  pivot_longer(-country_name, names_to = "codigo", values_to = "percentual") |>
+  mutate(finalidade = factor(unname(rotulos_fin[codigo]),
+                             levels = rev(names(cores_fin)))) |>
+  ggplot(aes(country_name, percentual, fill = finalidade)) +
+  geom_col(width = 0.7) +
+  scale_fill_manual(values = cores_fin, breaks = names(cores_fin)) +
+  scale_y_continuous(labels = fmt_pct, expand = c(0, 0)) +
+  guides(fill = guide_legend(nrow = 2)) +
+  labs(x = NULL, y = "% do gasto total", fill = NULL)
+```
+
+## O efeito da pandemia de COVID-19
+
+Entre 2019 e 2020, o gasto em saúde aumentou na maioria dos países. A mediana da variação foi de `r num(med_covid, 1)`%, e `r num(prop_alta, 0)`% dos `r nrow(covid)` países com dados tiveram aumento. O teste de Wilcoxon pareado indica que a mudança é estatisticamente significativa (p `r pval(wil$p.value)`). Em 2021, a variação mediana em relação a 2019 chegou a `r num(med_covid21, 1)`%, o que sugere que o aumento se manteve e até cresceu no segundo ano da pandemia.
+
+A Tabela \@ref(tab:tab-covid-resumo) resume as duas comparações. Os extremos mostram a heterogeneidade do período: as variações foram de `r num(min(covid$variacao), 1)`% (`r covid$country_name[which.min(covid$variacao)]`) a `r num(max(covid$variacao), 1)`% (`r covid$country_name[which.max(covid$variacao)]`). O Brasil ficou fora da tendência predominante: seu gasto variou `r num(br_covid, 1)`% em 2020, uma queda leve, e voltou a crescer em 2021, com `r num(br_covid21, 1)`% sobre 2019, bem abaixo da mediana mundial (Figura \@ref(fig:fig-covid)). Os dados não permitem apontar as causas dessas diferenças; fatores como a variação cambial, a queda de procedimentos eletivos e o gasto emergencial com a pandemia são hipóteses a investigar.
+
+```{r fig-covid, fig.cap="Variação do gasto total em saúde entre 2019 e 2020 (%). A linha verde marca o Brasil. Fonte: elaboração própria, com dados da OMS (GHED)."}
+ggplot(covid, aes(variacao)) +
+  geom_histogram(bins = 30, fill = azul, colour = "white") +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "#6B7785") +
+  geom_vline(xintercept = br_covid, colour = verde, linewidth = 1) +
+  annotate("text", x = br_covid, y = Inf, label = " Brasil",
+           colour = verde, hjust = 0, vjust = 1.5, fontface = "bold") +
+  scale_x_continuous(labels = fmt_pct) +
+  labs(x = "Variação do gasto total (%)", y = "Número de países")
+```
+
+```{r tab-covid-resumo}
+tibble(
+  `Período` = c("2019 a 2020", "2019 a 2021"),
+  `Países` = c(nrow(covid), nrow(covid21)),
+  `Mediana (%)` = num(c(median(covid$variacao), median(covid21$variacao)), 1),
+  `1º quartil (%)` = num(c(quantile(covid$variacao, .25), quantile(covid21$variacao, .25)), 1),
+  `3º quartil (%)` = num(c(quantile(covid$variacao, .75), quantile(covid21$variacao, .75)), 1),
+  `Países com aumento (%)` = num(c(mean(covid$variacao > 0), mean(covid21$variacao > 0)) * 100, 0),
+  `Brasil (%)` = num(c(br_covid, br_covid21), 1)
+) |>
+  kable(caption = "Variação do gasto total em saúde em relação a 2019. Fonte: elaboração própria, com dados da OMS (GHED).",
+        align = "lrrrrrr")
+```
+
+
+## O Brasil em perspectiva
+
+A Tabela \@ref(tab:tab-resumo) mostra a posição do Brasil em relação à distribuição mundial em 2023. O país gasta cerca de US$ `r num(br23$che_usd2023 / 1e9, 0)` bilhões por ano, o que o coloca entre os dez maiores gastadores, mas com um perfil de financiamento diferente do típico: a participação pública é bem inferior à mediana mundial, e a privada é bem superior, enquanto o pagamento direto das famílias está próximo da mediana.
+
+# Limitações {#sec-limites}
+
+Os resultados devem ser lidos com algumas ressalvas. Primeiro, a base não traz população, renda ou região dos países, de modo que as comparações usam o gasto total e não o gasto per capita, o que dificulta comparar países de tamanhos diferentes. Segundo, os valores em dólares constantes de 2023 corrigem a inflação, mas não as diferenças de preços entre países. Terceiro, nem todos os países têm dados em todos os anos, e Cuba não tem valores em dólares. Quarto, a tabela de finalidade cobre menos países e anos, e o número de países com dados cai depois de 2019, o que limita comparações no tempo. Por fim, os percentuais ausentes foram tratados como zero, uma decisão razoável dado que as partes somam cerca de 100%, mas que pode ocultar casos de dado não informado. Os testes aplicados descrevem associações e diferenças, e não permitem afirmar relações de causa e efeito.
+
+# Conclusão {#sec-conclusao}
+
+O gasto mundial em saúde mais que dobrou entre 2000 e 2023 e é muito concentrado: poucos países respondem por cerca de dois terços do total, e os Estados Unidos sozinhos por mais de 40%. Em termos de financiamento, a mediana mundial indica um aumento da participação pública e uma queda do pagamento direto das famílias, o que sugere melhora na proteção financeira em escala global. Por outro lado, o gasto total não se associou ao peso do pagamento direto, o que indica que o tamanho do gasto, sem ajuste pela população, não explica a forma de financiamento.
+
+A pandemia de COVID-19 deixou marca clara: o gasto cresceu na maioria dos países entre 2019 e 2020, de forma estatisticamente significativa. Já o Brasil teve um comportamento diferente, com queda leve em 2020. O país ocupa a oitava posição no gasto total e tem um financiamento em que o setor privado, especialmente os planos de saúde, tem peso maior do que o da mediana mundial, apesar da existência de um sistema público universal.
+
+Como próximos passos, recomenda-se incorporar dados de população e renda para análises per capita, e examinar com mais detalhe a trajetória do gasto privado brasileiro.
+
+# Declaração de uso de inteligência artificial {-}
+
+Foi utilizada a ferramenta de inteligência artificial Claude (Anthropic) como apoio em diversas etapas deste trabalho: na apresentação, orientação  e explicação de conceitos e de procedimentos desconhecidos de configuração (R, GitHub e shinyapps.io), tal como a revisão dos códigos do relatório e aplicativo e tradução e concatenação dos materiais utilizados para a confecção do projeto. 
+
+# Referências {-}
+
+<div id="refs"></div>
